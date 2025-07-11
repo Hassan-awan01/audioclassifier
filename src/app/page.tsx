@@ -1,103 +1,341 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+// import Link from "next/link";
+import { useState } from "react";
+import ColorScale from "@/components/color-scale";
+import FeatureMap from "@/components/feature-map";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import Waveform from "@/components/waveform";
+
+interface Prediction {
+  class: string;
+  confidence: number;
+}
+
+interface LayerData {
+  shape: number[];
+  values: number[][];
+}
+
+interface VisualizationData {
+  [layerName: string]: LayerData;
+}
+
+interface WaveformData {
+  values: number[];
+  sample_rate: number;
+  duration: number;
+}
+
+interface ApiResponse {
+  predictions: Prediction[];
+  visualization: VisualizationData;
+  input_spectrogram: LayerData;
+  waveform: WaveformData;
+}
+
+const ESC50_EMOJI_MAP: Record<string, string> = {
+  dog: "🐕",
+  rain: "🌧️",
+  crying_baby: "👶",
+  door_wood_knock: "🚪",
+  helicopter: "🚁",
+  rooster: "🐓",
+  sea_waves: "🌊",
+  sneezing: "🤧",
+  mouse_click: "🖱️",
+  chainsaw: "🪚",
+  pig: "🐷",
+  crackling_fire: "🔥",
+  clapping: "👏",
+  keyboard_typing: "⌨️",
+  siren: "🚨",
+  cow: "🐄",
+  crickets: "🦗",
+  breathing: "💨",
+  door_wood_creaks: "🚪",
+  car_horn: "📯",
+  frog: "🐸",
+  chirping_birds: "🐦",
+  coughing: "😷",
+  can_opening: "🥫",
+  engine: "🚗",
+  cat: "🐱",
+  water_drops: "💧",
+  footsteps: "👣",
+  washing_machine: "🧺",
+  train: "🚂",
+  hen: "🐔",
+  wind: "💨",
+  laughing: "😂",
+  vacuum_cleaner: "🧹",
+  church_bells: "🔔",
+  insects: "🦟",
+  pouring_water: "🚰",
+  brushing_teeth: "🪥",
+  clock_alarm: "⏰",
+  airplane: "✈️",
+  sheep: "🐑",
+  toilet_flush: "🚽",
+  snoring: "😴",
+  clock_tick: "⏱️",
+  fireworks: "🎆",
+  crow: "🐦‍⬛",
+  thunderstorm: "⛈️",
+  drinking_sipping: "🥤",
+  glass_breaking: "🔨",
+  hand_saw: "🪚",
+};
+
+const getEmojiForClass = (className: string): string => {
+  return ESC50_EMOJI_MAP[className] || "🔈";
+};
+
+function splitLayers(visualization: VisualizationData) {
+  const main: [string, LayerData][] = [];
+  const internals: Record<string, [string, LayerData][]> = {};
+
+  for (const [name, data] of Object.entries(visualization)) {
+    if (!name.includes(".")) {
+      main.push([name, data]);
+    } else {
+      const [parent] = name.split(".");
+      if (parent === undefined) continue;
+
+      if (!internals[parent]) internals[parent] = [];
+      internals[parent].push([name, data]);
+    }
+  }
+
+  return { main, internals };
+}
+
+export default function HomePage() {
+  const [vizData, setVizData] = useState<ApiResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setIsLoading(true);
+    setError(null);
+    setVizData(null);
+
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(file);
+    reader.onload = async () => {
+      try {
+        const arrayBuffer = reader.result as ArrayBuffer;
+        const base64String = btoa(
+          new Uint8Array(arrayBuffer).reduce(
+            (data, byte) => data + String.fromCharCode(byte),
+            ""
+          )
+        );
+        const url = process.env.NEXT_PUBLIC_MODAL_INFERENCE_URL;
+
+        if (!url) {
+          throw new Error("NEXT_PUBLIC_MODAL_INFERENCE_URL is not defined");
+        }
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audio_data: base64String }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error ${response.statusText}`);
+        }
+
+        const data: ApiResponse = await response.json();
+        setVizData(data);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "An unknown error occured"
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    reader.onerror = () => {
+      setError("Failed ot read the file.");
+      setIsLoading(false);
+    };
+  };
+
+  const { main, internals } = vizData
+    ? splitLayers(vizData?.visualization)
+    : { main: [], internals: {} };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="min-h-screen bg-stone-50 p-8">
+      <div className="mx-auto max-w-[100%]">
+        <div className="mb-12 text-center">
+          <h1 className="mb-4 text-4xl font-light tracking-tight text-stone-900">
+            CNN Audio Visualizer
+          </h1>
+          <p className="text-md mb-8 text-stone-600">
+            Upload a WAV file to see the model predictions and feauture maps
+          </p>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          <div className="flex flex-col items-center">
+            <div className="relative inline-block">
+              <input
+                type="file"
+                accept=".wav"
+                id="file-upload"
+                onChange={handleFileChange}
+                disabled={isLoading}
+                className="absolute inset-0 w-full cursor-pointer opacity-0"
+              />
+              <Button
+                disabled={isLoading}
+                className="border-stone-300"
+                variant="outline"
+                size="lg"
+              >
+                {isLoading ? "Analysing..." : "Choose File"}
+              </Button>
+            </div>
+
+            {fileName && (
+              <Badge
+                variant="secondary"
+                className="mt-4 bg-stone-200 text-stone-700"
+              >
+                {fileName}
+              </Badge>
+            )}
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {error && (
+          <Card className="mb-8 border-red-200 bg-red-50">
+            <CardContent>
+              <p className="text-red-600">Error: {error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {vizData && (
+          <div className="space-y-8">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-stone-900">
+                  Top Predictions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {vizData.predictions.slice(0, 3).map((pred, i) => (
+                    <div key={pred.class} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-md font-medium text-stone-700">
+                          {getEmojiForClass(pred.class)}{" "}
+                          <span>{pred.class.replaceAll("_", " ")}</span>
+                        </div>
+                        <Badge variant={i === 0 ? "default" : "secondary"}>
+                          {(pred.confidence * 100).toFixed(1)}%
+                        </Badge>
+                      </div>
+                      <Progress value={pred.confidence * 100} className="h-2" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="text-stone-900">
+                  <CardTitle className="text-stone-900">
+                    Input Spectrogram
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FeatureMap
+                    data={vizData.input_spectrogram.values}
+                    title={`${vizData.input_spectrogram.shape.join(" x ")}`}
+                    spectrogram
+                  />
+
+                  <div className="mt-5 flex justify-end">
+                    <ColorScale width={200} height={16} min={-1} max={1} />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-stone-900">
+                    Audio Waveform
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Waveform
+                    data={vizData.waveform.values}
+                    title={`${vizData.waveform.duration.toFixed(2)}s * ${
+                      vizData.waveform.sample_rate
+                    }Hz`}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Feature maps */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Convolutional Layer Outputs</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-5 gap-6">
+                  {main.map(([mainName, mainData]) => (
+                    <div key={mainName} className="space-y-4">
+                      <div>
+                        <h4 className="mb-2 font-medium text-stone-700">
+                          {mainName}
+                        </h4>
+                        <FeatureMap
+                          data={mainData.values}
+                          title={`${mainData.shape.join(" x ")}`}
+                        />
+                      </div>
+
+                      {internals[mainName] && (
+                        <div className="h-80 overflow-y-auto rounded border border-stone-200 bg-stone-50 p-2">
+                          <div className="space-y-2">
+                            {internals[mainName]
+                              .sort(([a], [b]) => a.localeCompare(b))
+                              .map(([layerName, layerData]) => (
+                                <FeatureMap
+                                  key={layerName}
+                                  data={layerData.values}
+                                  title={layerName.replace(`${mainName}.`, "")}
+                                  internal={true}
+                                />
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <ColorScale width={200} height={16} min={-1} max={1} />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
